@@ -130,9 +130,11 @@ const b64u = {
   dec: s => { const b = s.replace(/-/g, '+').replace(/_/g, '/'); return Uint8Array.from(atob(b + '==='.slice((b.length + 3) % 4)), c => c.charCodeAt(0)); },
   enc: a => btoa(String.fromCharCode(...a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
 };
+// CloudStorage answers through Telegram; never wait on it forever.
+const withTimeout = p => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error('Telegram CloudStorage مردش')), 6000))]);
 const cloud = {
-  get: k => new Promise((ok, no) => tg.CloudStorage.getItem(k, (e, v) => e ? no(new Error(e)) : ok(v || ''))),
-  set: (k, v) => new Promise((ok, no) => tg.CloudStorage.setItem(k, v, e => e ? no(new Error(e)) : ok())),
+  get: k => withTimeout(new Promise((ok, no) => tg.CloudStorage.getItem(k, (e, v) => e ? no(new Error(e)) : ok(v || '')))),
+  set: (k, v) => withTimeout(new Promise((ok, no) => tg.CloudStorage.setItem(k, v, e => e ? no(new Error(e)) : ok()))),
 };
 
 async function decrypt(keyB64, d) {
@@ -159,7 +161,7 @@ function linkScreen(text) {
 (async () => {
   if (!tg || !tg.initData) return msg('افتح الصفحة دي من زرار «⚙️ الإعدادات» في البوت بتاعك.');
   const d = new URLSearchParams(location.search).get('d');
-  const key = await cloud.get('aca_key').catch(() => '');
+  const key = await cloud.get('aca_key');
   if (!key) return linkScreen('أول مرة؟ اربط الصفحة دي بالموبايل مرة واحدة.');
   if (!d) return linkScreen('الموبايل لسه مستلمش الربط. لو استنيت شوية ومفيش جديد، اربط تاني.');
   try { data = await decrypt(key, d); }
