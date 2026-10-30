@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>الرد الآلي</title>
+<script>
+  // Read our data before telegram-web-app.js touches the hash. The phone puts
+  // deflated+base64url JSON first; Telegram appends its own "tgWebApp..." params.
+  window.__payload = (location.hash.slice(1).split('&')[0] || '');
+  if (window.__payload.startsWith('tgWebApp')) window.__payload = '';
+</script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: var(--tg-theme-secondary-bg-color, #f1f1f4);
+    --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff));
+    --text: var(--tg-theme-text-color, #16181d);
+    --hint: var(--tg-theme-hint-color, #8a8f98);
+    --accent: var(--tg-theme-button-color, #2a87d0);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --head: var(--tg-theme-section-header-text-color, var(--tg-theme-accent-text-color, #2a87d0));
+    --danger: var(--tg-theme-destructive-text-color, #e5484d);
+    --line: color-mix(in srgb, var(--hint) 22%, transparent);
+    --field: color-mix(in srgb, var(--hint) 10%, transparent);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: var(--tg-theme-secondary-bg-color, #0f1115);
+      --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #1a1d23));
+      --text: var(--tg-theme-text-color, #eceef2);
+      --hint: var(--tg-theme-hint-color, #8b919c);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: var(--tg-theme-secondary-bg-color, #0f1115);
+    --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #1a1d23));
+    --text: var(--tg-theme-text-color, #eceef2);
+    --hint: var(--tg-theme-hint-color, #8b919c);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 15px/1.55 "IBM Plex Sans Arabic", system-ui, sans-serif;
+    padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
+  }
+  h2 {
+    font-size: 13px; font-weight: 600; color: var(--head);
+    margin: 22px 4px 8px; letter-spacing: .2px;
+  }
+  .card { background: var(--card); border-radius: 14px; overflow: hidden; }
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line); min-height: 50px;
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .sub { color: var(--hint); font-size: 13px; }
+  .stack { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .stack:last-child { border-bottom: 0; }
+  label.cap { display: block; font-size: 13px; color: var(--hint); margin-bottom: 6px; }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%; font: inherit; color: var(--text); background: var(--field);
+    border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; outline: none;
+  }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 84px; }
+  .ltr { direction: ltr; text-align: left; }
+  input.num { width: 92px; flex: none; text-align: center; direction: ltr; }
+  .seg { display: flex; background: var(--field); border-radius: 11px; padding: 3px; gap: 3px; }
+  .seg button {
+    flex: 1; font: inherit; font-size: 14px; border: 0; border-radius: 9px; padding: 8px 4px;
+    background: transparent; color: var(--text); cursor: pointer;
+  }
+  .seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .switch { position: relative; width: 46px; height: 28px; flex: none; }
+  .switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
+  .switch span {
+    position: absolute; inset: 0; border-radius: 99px; background: var(--line); transition: background .15s;
+  }
+  .switch span::after {
+    content: ""; position: absolute; top: 3px; right: 3px; width: 22px; height: 22px;
+    border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px #0003;
+  }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(-18px); }
+  .call { padding: 11px 14px; border-bottom: 1px solid var(--line); }
+  .call:last-child { border-bottom: 0; }
+  .call .top { display: flex; justify-content: space-between; gap: 8px; }
+  .call .who { font-weight: 600; }
+  .call .when { color: var(--hint); font-size: 13px; white-space: nowrap; }
+  .call .sum { color: var(--hint); font-size: 14px; margin-top: 2px; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 99px; margin-inline-start: 6px; font-weight: 500; }
+  .tag.urgent { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+  .tag.spam { background: var(--field); color: var(--hint); }
+  .more { display: block; width: 100%; font: inherit; color: var(--head); background: none; border: 0; padding: 12px; cursor: pointer; }
+  .empty { text-align: center; color: var(--hint); padding: 48px 12px; }
+  .stamp { color: var(--hint); font-size: 12px; text-align: center; margin-top: 18px; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary h2::after { content: " ▾"; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.ready(); tg?.expand();
+if (tg?.colorScheme) document.documentElement.dataset.theme = tg.colorScheme;
+
+const VOICES = {
+  Charon: 'Charon — راجل، رزين', Puck: 'Puck — راجل، حيوي', Fenrir: 'Fenrir — راجل، قوي',
+  Orus: 'Orus — راجل، هادي', Kore: 'Kore — ست، واضح', Aoede: 'Aoede — ست، ناعم',
+  Leda: 'Leda — ست، شبابي', Zephyr: 'Zephyr — ست، مشرق',
+};
+const LIST_KEYS = new Set(['spamNumbers']);
+
+function unpack(s) {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64 + '==='.slice((b64.length + 3) % 4));
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  return JSON.parse(pako.inflateRaw(bytes, { to: 'string' }));
+}
+
+let data = null;
+try { if (window.__payload) data = unpack(window.__payload); } catch (e) { console.error(e); }
+
+const app = document.getElementById('app');
+if (!data) {
+  app.innerHTML = '<div class="empty">افتح الصفحة دي من زرار «⚙️ الإعدادات» في البوت بتاعك.</div>';
+} else {
+  render();
+}
+
+function render() {
+  const orig = data.cfg;
+  const cfg = structuredClone(orig);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') n.className = v;
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v);
+    }
+    n.append(...kids.flat().filter(k => k != null));
+    return n;
+  };
+
+  const changed = () => Object.keys(cfg).filter(k => JSON.stringify(cfg[k]) !== JSON.stringify(orig[k]));
+  function set(k, v) { cfg[k] = v; refresh(); }
+
+  // ---- field builders ----
+  const text = (k, cap, opts = {}) => {
+    const isList = LIST_KEYS.has(k);
+    const val = isList ? (cfg[k] || []).join('\n') : (cfg[k] ?? '');
+    const input = opts.long || isList
+      ? el('textarea', { rows: opts.rows || 4, class: opts.ltr ? 'ltr' : '' }, val)
+      : el('input', { type: 'text', value: val, class: opts.ltr ? 'ltr' : '' });
+    input.addEventListener('input', () => {
+      const v = input.value;
+      set(k, isList ? v.split('\n').map(s => s.trim()).filter(Boolean) : v);
+    });
+    return el('div', { class: 'stack' }, el('label', { class: 'cap' }, cap), input,
+      opts.hint ? el('div', { class: 'sub', style: 'margin-top:6px;color:var(--hint);font-size:13px' }, opts.hint) : null);
+  };
+  const toggle = (k, cap, sub) => {
+    const input = el('input', { type: 'checkbox' });
+    input.checked = cfg[k] !== false;
+    input.addEventListener('change', () => { set(k, input.checked); rebuild(); });
+    return el('div', { class: 'row' },
+      el('div', {}, el('div', {}, cap), sub ? el('div', { class: 'sub' }, sub) : null),
+      el('label', { class: 'switch' }, input, el('span')));
+  };
+  const number = (k, cap, unit, min, max) => {
+    const input = el('input', { type: 'number', class: 'num', min, max, value: cfg[k] ?? '' });
+    input.addEventListener('input', () => {
+      const v = parseInt(input.value, 10);
+      if (!Number.isNaN(v)) set(k, Math.min(max, Math.max(min, v)));
+    });
+    return el('div', { class: 'row' },
+      el('div', {}, el('div', {}, cap), unit ? el('div', { class: 'sub' }, unit) : null), input);
+  };
+  const seg = (k, options, rebuildAfter) => {
+    const wrap = el('div', { class: 'seg' });
+    for (const [v, label] of options) {
+      wrap.append(el('button', {
+        type: 'button', 'aria-pressed': String(cfg[k] === v),
+        onclick: () => { set(k, v); if (rebuildAfter) rebuild(); else wrap.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v))); },
+        'data-v': v,
+      }, label));
+    }
+    return el('div', { class: 'stack' }, wrap);
+  };
+  const select = (k, cap, options) => {
+    const s = el('select', {}, Object.entries(options).map(([v, l]) => {
+      const o = el('option', { value: v }, l); if (cfg[k] === v) o.selected = true; return o;
+    }));
+    s.addEventListener('change', () => set(k, s.value));
+    return el('div', { class: 'stack' }, el('label', { class: 'cap' }, cap), s);
+  };
+  const section = (title, ...rows) => [el('h2', {}, title), el('div', { class: 'card' }, rows)];
+
+  // ---- calls ----
+  const fmt = new Intl.DateTimeFormat('ar-EG', { weekday: 'short', day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' });
+  let showAll = false;
+  const callsCard = () => {
+    const calls = data.calls || [];
+    if (!calls.length) return el('div', { class: 'card' }, el('div', { class: 'empty', style: 'padding:20px' }, 'مفيش مكالمات لسه'));
+    const list = (showAll ? calls : calls.slice(0, 4)).map(c => el('div', { class: 'call' },
+      el('div', { class: 'top' },
+        el('div', { class: 'who' }, c.n || 'رقم مخفي',
+          c.u ? el('span', { class: 'tag urgent' }, 'مستعجل') : null,
+          c.k === 'SPAM' ? el('span', { class: 'tag spam' }, 'سبام') : null),
+        el('div', { class: 'when' }, fmt.format(new Date(c.t)))),
+      c.s ? el('div', { class: 'sum' }, c.s) : null));
+    const card = el('div', { class: 'card' }, list);
+    if (calls.length > 4) card.append(el('button', { class: 'more', onclick: () => { showAll = !showAll; rebuild(); } }, showAll ? 'أقل' : `كل المكالمات (${calls.length})`));
+    return card;
+  };
+
+  // ---- page ----
+  function rebuild() {
+    const mode = cfg.mode || 'assistant';
+    const ctl = cfg.telegramControl || 'interval';
+    app.replaceChildren(
+      ...section('الرد الآلي',
+        toggle('enabled', 'شغال', 'لو مقفول الموبايل هيرن عادي'),
+        seg('mode', [['assistant', 'مساعد'], ['persona', 'زيّي'], ['voicemail', 'رسالة']], true)),
+      el('h2', {}, 'آخر المكالمات'), callsCard(),
+      ...section('الكلام',
+        text('ownerName', 'اسمك'),
+        mode === 'assistant' ? text('greeting', 'أول جملة يقولها', { long: true, rows: 3, hint: '{owner} = اسمك' }) : null,
+        mode === 'persona' ? text('personaGreeting', 'أول جملة يقولها (مود «زيّي»)', { long: true, rows: 3, hint: '{owner} = اسمك. المتسجلين بيتقالهم «أيوه يا <اسمه>».' }) : null,
+        mode === 'persona' ? text('personaStyle', 'أسلوبك في الكلام', { long: true, rows: 4 }) : null,
+        mode !== 'voicemail' ? text('aboutOwner', 'معلومات عنك', { long: true, rows: 6, hint: 'حاجات يقدر يجاوب بيها المتسجلين عندك بس' }) : null,
+        mode !== 'voicemail' ? text('rules', 'قواعد ممنوع يكسرها', { long: true, rows: 5 }) : null,
+        text('offlineGreeting', 'رسالة الرد الصوتي', { long: true, rows: 3, hint: 'بتتقال في مود «رسالة» أو لما النت يقع' }),
+        select('voiceName', 'الصوت', VOICES)),
+      ...section('المكالمات',
+        number('autoAnswerDelaySec', 'يرد بعد', 'ثانية رنين', 0, 60),
+        mode === 'voicemail'
+          ? number('voicemailMaxSec', 'أقصى مدة للرسالة', 'ثانية', 10, 600)
+          : number('maxCallSec', 'أقصى مدة للمكالمة', 'ثانية', 30, 1800),
+        number('repeatCallsForSpam', 'رقم غريب يتصل كام مرة يبقى سبام', null, 0, 20),
+        text('spamNumbers', 'أرقام السبام', { ltr: true, rows: 3, hint: 'رقم في كل سطر' }),
+        toggle('muteMicDuringCall', 'اقفل المايك أثناء المكالمة')),
+      ...section('تليجرام',
+        toggle('sendAudioOnMobileData', 'ابعت التسجيل على باقة الموبايل', 'لو مقفول، هيتبعت على الـ Wi-Fi بس'),
+        toggle('dailyDigest', 'ملخص آخر اليوم', 'مين اتصل، المستعجل، ومواعيد بكره'),
+        cfg.dailyDigest !== false ? number('digestHour', 'يتبعت الساعة', '0 – 23', 0, 23) : null,
+        el('div', { class: 'stack' }, el('label', { class: 'cap' }, 'التطبيق يشوف التغييرات اللي بتحفظها هنا'),
+          seg('telegramControl', [['interval', 'كل شوية'], ['always', 'على طول']], true).firstChild),
+        ctl === 'interval' ? number('telegramPollMin', 'كل', 'دقيقة', 5, 120) : null),
+      el('details', {},
+        el('summary', {}, el('h2', {}, 'متقدم')),
+        el('div', { class: 'card' },
+          text('liveModel', 'Live model', { ltr: true }),
+          text('textModel', 'Text model', { ltr: true }),
+          text('transcribeModel', 'Transcribe model', { ltr: true }),
+          text('ttsModel', 'TTS model', { ltr: true }))),
+      el('div', { class: 'stamp' }, 'البيانات دي من ' + fmt.format(new Date(data.at))),
+    );
+  }
+
+  // ---- save ----
+  function refresh() {
+    const n = changed().length;
+    if (!tg) return;
+    if (n) {
+      tg.MainButton.setParams({ text: `احفظ (${n})`, is_visible: true, is_active: true });
+      tg.enableClosingConfirmation?.();
+    } else {
+      tg.MainButton.hide();
+      tg.disableClosingConfirmation?.();
+    }
+  }
+  tg?.MainButton.onClick(() => {
+    const keys = changed();
+    if (!keys.length) return;
+    const set = Object.fromEntries(keys.map(k => [k, cfg[k]]));
+    const payload = JSON.stringify({ set });
+    if (new TextEncoder().encode(payload).length > 4096) {
+      tg.showAlert('التغييرات كتير على مرة واحدة. احفظ جزء وبعدين كمّل.');
+      return;
+    }
+    tg.disableClosingConfirmation?.();
+    tg.sendData(payload); // closes the Mini App; the phone applies it on its next check
+  });
+
+  rebuild();
+  refresh();
+}
+</script>
+</body>
+</html>
