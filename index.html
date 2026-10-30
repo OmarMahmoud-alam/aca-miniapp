@@ -106,7 +106,17 @@
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"><div class="empty">بيحمّل…</div></div>
+<script>
+  // Any failure is shown on the page, so a problem is never just a blank screen.
+  function showError(msg) {
+    var app = document.getElementById('app');
+    app.innerHTML = '<div class="empty">حصلت مشكلة وأنا بفتح الإعدادات:<br><code style="direction:ltr;display:block;margin-top:8px;font-size:12px"></code></div>';
+    app.querySelector('code').textContent = msg;
+  }
+  window.addEventListener('error', function (e) { showError(e.message + ' @' + (e.lineno || '?')); });
+  window.addEventListener('unhandledrejection', function (e) { showError(String(e.reason)); });
+</script>
 <script>
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -127,18 +137,28 @@ function unpack(s) {
 }
 
 let data = null;
-try { if (window.__payload) data = unpack(window.__payload); } catch (e) { console.error(e); }
+let unpackError = '';
+try { if (window.__payload) data = unpack(window.__payload); } catch (e) { unpackError = String(e); }
 
 const app = document.getElementById('app');
 if (!data) {
   app.innerHTML = '<div class="empty">افتح الصفحة دي من زرار «⚙️ الإعدادات» في البوت بتاعك.</div>';
+  // What the page actually received, for debugging (no settings data in it).
+  const why = [
+    'hash=' + location.hash.length,
+    'payload=' + window.__payload.length,
+    'pako=' + (typeof pako),
+    'tg=' + (tg ? (tg.platform + ' v' + tg.version) : 'none'),
+    unpackError,
+  ].filter(Boolean).join(' · ');
+  app.append(Object.assign(document.createElement('div'), { className: 'stamp', textContent: why }));
 } else {
-  render();
+  try { render(); } catch (e) { showError(e.message || String(e)); }
 }
 
 function render() {
   const orig = data.cfg;
-  const cfg = structuredClone(orig);
+  const cfg = JSON.parse(JSON.stringify(orig));
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
