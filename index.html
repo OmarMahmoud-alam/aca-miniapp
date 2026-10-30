@@ -130,12 +130,34 @@ const b64u = {
   dec: s => { const b = s.replace(/-/g, '+').replace(/_/g, '/'); return Uint8Array.from(atob(b + '==='.slice((b.length + 3) % 4)), c => c.charCodeAt(0)); },
   enc: a => btoa(String.fromCharCode(...a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
 };
-// CloudStorage answers through Telegram; never wait on it forever.
-const withTimeout = p => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error('Telegram CloudStorage مردش')), 6000))]);
-const cloud = {
-  get: k => withTimeout(new Promise((ok, no) => tg.CloudStorage.getItem(k, (e, v) => e ? no(new Error(e)) : ok(v || '')))),
-  set: (k, v) => withTimeout(new Promise((ok, no) => tg.CloudStorage.setItem(k, v, e => e ? no(new Error(e)) : ok()))),
+// The key lives in Telegram CloudStorage (follows the account to every device);
+// if that's unavailable or silent, this device's localStorage keeps it instead.
+const withTimeout = p => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 4000))]);
+const hasCloud = () => tg.isVersionAtLeast?.('6.9') && tg.CloudStorage;
+const local = {
+  get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
 };
+const store = {
+  async get(k) {
+    if (hasCloud()) {
+      try {
+        const v = await withTimeout(new Promise((ok, no) => tg.CloudStorage.getItem(k, (e, v) => e ? no(new Error(e)) : ok(v || ''))));
+        if (v) return v;
+      } catch (e) { console.warn('cloud get', e); }
+    }
+    return local.get(k);
+  },
+  async set(k, v) {
+    local.set(k, v);
+    if (hasCloud()) {
+      await withTimeout(new Promise((ok, no) => tg.CloudStorage.setItem(k, v, e => e ? no(new Error(e)) : ok())))
+        .catch(e => console.warn('cloud set', e));
+    }
+  },
+};
+const VERSION = 'v4';
+const diag = () => [VERSION, tg ? tg.platform + ' ' + tg.version : 'no tg', location.search ? 'd=' + (new URLSearchParams(location.search).get('d') || '').length : 'no d'].join(' · ');
 
 async function decrypt(keyB64, d) {
   const raw = b64u.dec(d);
@@ -146,22 +168,23 @@ async function decrypt(keyB64, d) {
 
 let data = null;
 const app = document.getElementById('app');
-const msg = (html) => { app.innerHTML = '<div class="empty">' + html + '</div>'; };
+const msg = (html) => { app.innerHTML = '<div class="empty">' + html + '</div><div class="stamp"></div>'; app.querySelector('.stamp').textContent = diag(); };
 
 /** One tap: make a key, keep it in Telegram's cloud, and hand it to the phone. */
 function linkScreen(text) {
   msg(text + '<br><br><button id="link" style="font:inherit;border:0;border-radius:12px;padding:12px 22px;background:var(--accent);color:var(--accent-text);font-weight:600">🔗 اربط</button>');
   document.getElementById('link').onclick = async () => {
     const key = b64u.enc(crypto.getRandomValues(new Uint8Array(32)));
-    await cloud.set('aca_key', key);
+    await store.set('aca_key', key);
     tg.sendData(JSON.stringify({ link: key })); // closes; the phone answers with a new button
   };
 }
 
 (async () => {
-  if (!tg || !tg.initData) return msg('افتح الصفحة دي من زرار «⚙️ الإعدادات» في البوت بتاعك.');
+  // initData is empty for keyboard-button launches, so detect Telegram by its platform.
+  if (!tg || tg.platform === 'unknown') return msg('افتح الصفحة دي من زرار «⚙️ الإعدادات» في البوت بتاعك.');
   const d = new URLSearchParams(location.search).get('d');
-  const key = await cloud.get('aca_key');
+  const key = await store.get('aca_key');
   if (!key) return linkScreen('أول مرة؟ اربط الصفحة دي بالموبايل مرة واحدة.');
   if (!d) return linkScreen('الموبايل لسه مستلمش الربط. لو استنيت شوية ومفيش جديد، اربط تاني.');
   try { data = await decrypt(key, d); }
