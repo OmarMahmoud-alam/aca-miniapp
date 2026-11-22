@@ -97,6 +97,40 @@
   details > summary::-webkit-details-marker { display: none; }
   details > summary h2::after { content: " ▾"; }
   .hidden { display: none !important; }
+  .btn {
+    font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 12px 14px; cursor: pointer;
+    background: var(--accent); color: var(--accent-text);
+  }
+  .btn.alt { background: var(--field); color: var(--text); }
+  .btn:disabled { opacity: .5; }
+  .two { display: flex; gap: 8px; padding: 12px 14px; }
+  .two .btn { flex: 1; }
+
+  /* ---- call screen ---- */
+  .callwrap { display: flex; flex-direction: column; min-height: calc(100vh - 120px); }
+  .callhead { text-align: center; padding: 28px 8px 12px; }
+  .callhead .nm { font-size: 24px; font-weight: 600; }
+  .callhead .no { color: var(--hint); direction: ltr; margin-top: 2px; }
+  .callhead .st { margin-top: 14px; font-size: 15px; color: var(--head); min-height: 24px; }
+  .callhead .tm { color: var(--hint); font-variant-numeric: tabular-nums; direction: ltr; min-height: 22px; }
+  .lines { flex: 1; overflow-y: auto; max-height: 42vh; padding: 4px 2px; }
+  .ln { margin: 6px 0; padding: 8px 11px; border-radius: 12px; max-width: 86%; font-size: 14px; background: var(--card); }
+  .ln.ai { margin-inline-start: auto; background: color-mix(in srgb, var(--accent) 14%, var(--card)); }
+  .ln .w { font-size: 11px; color: var(--hint); }
+  .ctl { display: flex; justify-content: center; gap: 22px; padding: 12px 0 4px; }
+  .rnd {
+    width: 62px; height: 62px; border-radius: 50%; border: 0; font-size: 24px; cursor: pointer;
+    background: var(--field); color: var(--text); display: grid; place-items: center;
+  }
+  .rnd[aria-pressed=true] { background: var(--text); color: var(--card); }
+  .rnd.go { background: #22a559; color: #fff; width: 72px; height: 72px; font-size: 28px; }
+  .rnd.end { background: #e5484d; color: #fff; width: 72px; height: 72px; font-size: 28px; }
+  .rnd small { display: block; font-size: 10px; }
+  .cap2 { text-align: center; color: var(--hint); font-size: 12px; margin-top: 4px; }
+  .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 280px; margin: 10px auto 0; direction: ltr; }
+  .keys button { font: inherit; font-size: 22px; padding: 10px 0; border: 0; border-radius: 12px; background: var(--card); color: var(--text); }
+  .meter { height: 4px; border-radius: 2px; background: var(--field); margin: 10px auto 0; max-width: 200px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .1s; }
 </style>
 </head>
 <body>
@@ -120,6 +154,7 @@ const VOICES = {
   Charon: 'Charon — راجل، رزين', Puck: 'Puck — راجل، حيوي', Fenrir: 'Fenrir — راجل، قوي',
   Orus: 'Orus — راجل، هادي', Kore: 'Kore — ست، واضح', Aoede: 'Aoede — ست، ناعم',
   Leda: 'Leda — ست، شبابي', Zephyr: 'Zephyr — ست، مشرق',
+  'local:sv': 'صوتي SV — على الموبايل', 'local:s': 'صوتي S — على الموبايل',
 };
 const LIST_KEYS = new Set(['spamNumbers']);
 
@@ -156,7 +191,7 @@ const store = {
     }
   },
 };
-const VERSION = 'v4';
+const VERSION = 'v5';
 const diag = () => [VERSION, tg ? tg.platform + ' ' + tg.version : 'no tg', location.search ? 'd=' + (new URLSearchParams(location.search).get('d') || '').length : 'no d'].join(' · ');
 
 async function decrypt(keyB64, d) {
@@ -181,16 +216,307 @@ function linkScreen(text) {
 }
 
 (async () => {
+  const q = new URLSearchParams(location.search);
+  // Call screen opened in a normal browser (Telegram's mic didn't work): the key rides in #k=.
+  const hashKey = new URLSearchParams(location.hash.slice(1)).get('k');
+  if (q.get('c') && hashKey) {
+    history.replaceState(null, '', location.pathname + location.search); // keep the key out of history
+    return callScreen(await decrypt(hashKey, q.get('c')), hashKey, q.get('c'));
+  }
   // initData is empty for keyboard-button launches, so detect Telegram by its platform.
   if (!tg || tg.platform === 'unknown') return msg('افتح الصفحة دي من زرار «⚙️ الإعدادات» في البوت بتاعك.');
-  const d = new URLSearchParams(location.search).get('d');
+  const d = q.get('d');
   const key = await store.get('aca_key');
+  if (q.get('c')) {
+    if (!key) return linkScreen('اربط الصفحة بالموبايل الأول.');
+    let call;
+    try { call = await decrypt(key, q.get('c')); }
+    catch (e) { return linkScreen('الزرار ده متربط بجهاز تاني. اربط تاني.'); }
+    return callScreen(call, key, q.get('c'));
+  }
   if (!key) return linkScreen('أول مرة؟ اربط الصفحة دي بالموبايل مرة واحدة.');
   if (!d) return linkScreen('الموبايل لسه مستلمش الربط. لو استنيت شوية ومفيش جديد، اربط تاني.');
   try { data = await decrypt(key, d); }
   catch (e) { return linkScreen('الزرار ده قديم أو متربط بجهاز تاني. اربط تاني.'); }
   render();
 })().catch(e => showError(e.message || String(e)));
+
+// ======================= call screen =======================
+// The owner's voice on the phone's line. Audio and control go through the relay
+// (relay/worker.js) as AES-GCM frames with the same key as the settings data:
+// [type][body], type 1 = 40 ms of 16 kHz µ-law, type 2 = JSON. The relay only sees ciphertext.
+
+const MU = {
+  enc(f32) {
+    const out = new Uint8Array(f32.length + 1); out[0] = 1;
+    for (let i = 0; i < f32.length; i++) {
+      let s = Math.max(-1, Math.min(1, f32[i])) * 32767 | 0;
+      const sign = s < 0 ? 0x80 : 0; if (s < 0) s = -s;
+      if (s > 32635) s = 32635;
+      s += 0x84;
+      let exp = 7, mask = 0x4000;
+      while (exp > 0 && !(s & mask)) { exp--; mask >>= 1; }
+      out[i + 1] = ~(sign | (exp << 4) | ((s >> (exp + 3)) & 0x0f)) & 0xff;
+    }
+    return out;
+  },
+  table: (() => {
+    const t = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+      const u = ~i & 0xff, v = ((((u & 0x0f) << 3) + 0x84) << ((u & 0x70) >> 4));
+      t[i] = ((u & 0x80) ? 0x84 - v : v - 0x84) / 32768;
+    }
+    return t;
+  })(),
+};
+
+// Capture: mic at the context's rate → 16 kHz, posted in 640-sample (40 ms) frames.
+// Play: 16 kHz frames → context rate, with a small jitter buffer (starts at 120 ms, caps at 500 ms).
+const WORKLET = `
+class Cap extends AudioWorkletProcessor {
+  constructor() { super(); this.r = sampleRate / 16000; this.t = -1; this.prev = 0; this.buf = new Float32Array(640); this.n = 0; this.peak = 0; }
+  process(inputs) {
+    const x = inputs[0] && inputs[0][0];
+    if (!x) return true;
+    while (this.t < x.length - 1) {
+      const i = Math.floor(this.t), f = this.t - i;
+      const a = i < 0 ? this.prev : x[i], b = x[i + 1];
+      const v = a + (b - a) * f;
+      this.buf[this.n++] = v;
+      const m = v < 0 ? -v : v; if (m > this.peak) this.peak = m;
+      if (this.n === 640) { this.port.postMessage({ pcm: this.buf, peak: this.peak }); this.buf = new Float32Array(640); this.n = 0; this.peak = 0; }
+      this.t += this.r;
+    }
+    this.t -= x.length; this.prev = x[x.length - 1];
+    return true;
+  }
+}
+class Play extends AudioWorkletProcessor {
+  constructor() {
+    super(); this.step = 16000 / sampleRate; this.size = 32768; this.ring = new Float32Array(this.size);
+    this.w = 0; this.r = 0; this.on = false;
+    this.port.onmessage = e => {
+      if (e.data === 'clear') { this.r = this.w; this.on = false; return; }
+      const f = e.data;
+      for (let i = 0; i < f.length; i++) this.ring[(this.w + i) % this.size] = f[i];
+      this.w += f.length;
+      if (this.w - this.r > 8000) this.r = this.w - 1920; // >500 ms behind: catch up
+    };
+  }
+  process(_, outputs) {
+    const out = outputs[0][0];
+    for (let k = 0; k < out.length; k++) {
+      const avail = this.w - this.r;
+      if (!this.on && avail >= 1920) this.on = true;
+      if (!this.on || avail < 2) { this.on = false; out[k] = 0; continue; }
+      const i = Math.floor(this.r), f = this.r - i;
+      const a = this.ring[i % this.size], b = this.ring[(i + 1) % this.size];
+      out[k] = a + (b - a) * f;
+      this.r += this.step;
+    }
+    for (let c = 1; c < outputs[0].length; c++) outputs[0][c].set(out);
+    return true;
+  }
+}
+registerProcessor('aca-cap', Cap);
+registerProcessor('aca-play', Play);
+`;
+
+const STATES = {
+  connecting: 'بيوصل للموبايل…',
+  offline: 'الموبايل مش متصل دلوقتي — يمكن المكالمة خلصت',
+  waiting: 'جاهز. دوس «اتصل» والموبايل هيتصل من خطك',
+  dialing: 'بيتصل…',
+  active: 'متصل — اتكلم',
+  ai: 'الـ AI بيتكلم دلوقتي',
+  ended: 'المكالمة خلصت',
+  local: 'اتستلمت من الموبايل نفسه',
+  cancelled: 'اتلغت',
+  expired: 'الوقت خلص. ابعت الأمر تاني',
+  failed: 'معرفش يتصل',
+  busy: 'الخط مشغول بمكالمة تانية',
+};
+const FINAL = new Set(['ended', 'local', 'cancelled', 'expired', 'failed']);
+
+async function callScreen(call, keyB64, sealed) {
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') n.className = v;
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v);
+    }
+    n.append(...kids.flat().filter(k => k != null));
+    return n;
+  };
+  tg?.disableVerticalSwipes?.();
+
+  const key = await crypto.subtle.importKey('raw', b64u.dec(keyB64), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  const room = b64u.enc(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('aca-room:' + keyB64)))).slice(0, 22);
+  const wsUrl = call.relay.replace(/\/+$/, '').replace(/^http/, 'ws') + '/ws?room=' + room + '&role=owner';
+
+  // ---- UI ----
+  const nameEl = el('div', { class: 'nm' }, call.name || call.number || 'مكالمة');
+  const noEl = el('div', { class: 'no' }, call.name && call.name !== call.number ? call.number : '');
+  const stEl = el('div', { class: 'st' }, STATES.connecting);
+  const tmEl = el('div', { class: 'tm' });
+  const meter = el('i');
+  const lines = el('div', { class: 'lines' });
+  const ctl = el('div', { class: 'ctl' });
+  const extra = el('div');
+  const hint = el('div', { class: 'cap2' });
+  app.replaceChildren(el('div', { class: 'callwrap' },
+    el('div', { class: 'callhead' }, nameEl, noEl, stEl, tmEl, el('div', { class: 'meter' }, meter)),
+    lines, ctl, hint, extra));
+
+  let state = 'connecting', since = 0, ws = null, phoneHere = false, done = false;
+  let audio = null, muted = false, phoneMic = true, keysOpen = false;
+  let sendChain = Promise.resolve(), recvChain = Promise.resolve();
+
+  const send = obj => sendFrame(new Uint8Array([2, ...new TextEncoder().encode(JSON.stringify(obj))]));
+  function sendFrame(plain) {
+    sendChain = sendChain.then(async () => {
+      if (!ws || ws.readyState !== 1) return;
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain));
+      const f = new Uint8Array(12 + ct.length); f.set(iv); f.set(ct, 12);
+      ws.send(f);
+    }).catch(() => {});
+  }
+
+  function connect() {
+    if (done) return;
+    ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { send({ t: 'hello' }); setTimeout(() => { if (!phoneHere && !done) setState('offline'); }, 8000); };
+    ws.onmessage = e => {
+      if (typeof e.data === 'string') {
+        let m; try { m = JSON.parse(e.data); } catch { return; }
+        phoneHere = m.peer === 'up';
+        if (phoneHere) send({ t: 'hello' }); else if (!done) setState('offline');
+        return;
+      }
+      const raw = new Uint8Array(e.data);
+      recvChain = recvChain.then(async () => {
+        const p = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.slice(0, 12) }, key, raw.slice(12)));
+        if (p[0] === 1) { if (audio) audio.play(p); }
+        else if (p[0] === 2) onControl(JSON.parse(new TextDecoder().decode(p.slice(1))));
+      }).catch(() => {});
+    };
+    ws.onclose = () => { ws = null; if (!done) setTimeout(connect, 1500); };
+  }
+
+  function onControl(m) {
+    if (m.t === 'state') {
+      phoneHere = true;
+      if (m.name || m.number) { nameEl.textContent = m.name || m.number; noEl.textContent = m.name && m.name !== m.number ? m.number : ''; }
+      if (m.s === 'active' && state !== 'active') since = Date.now();
+      setState(m.s);
+    } else if (m.t === 'line') {
+      lines.append(el('div', { class: 'ln ' + (m.who === 'ai' ? 'ai' : '') },
+        el('div', { class: 'w' }, m.who === 'ai' ? 'الـ AI' : (call.name || 'هو')), m.text));
+      lines.scrollTop = lines.scrollHeight;
+    }
+  }
+
+  function setState(s) {
+    state = s;
+    stEl.textContent = STATES[s] || s;
+    if (FINAL.has(s)) {
+      done = true;
+      stopAudio();
+      tg?.disableClosingConfirmation?.();
+      try { ws?.close(); } catch {}
+    } else if (s === 'active' || s === 'dialing') tg?.enableClosingConfirmation?.();
+    drawControls();
+  }
+
+  const btn = (cls, icon, label, onclick, pressed) => {
+    const b = el('button', { class: 'rnd ' + cls, type: 'button', onclick }, icon);
+    if (pressed != null) b.setAttribute('aria-pressed', String(pressed));
+    return el('div', { style: 'text-align:center' }, b, el('div', { class: 'cap2' }, label));
+  };
+
+  function drawControls() {
+    const live = state === 'active' || state === 'dialing';
+    const row = [];
+    if (state === 'waiting') row.push(btn('go', '📞', 'اتصل', () => start('dial')));
+    if (state === 'ai') row.push(btn('go', '🎧', 'استلم المكالمة', () => start('takeover')));
+    if (live) {
+      row.push(btn('', muted ? '🔇' : '🎙️', muted ? 'المايك مقفول' : 'المايك', () => { muted = !muted; drawControls(); }, muted));
+      row.push(btn('', '⌨️', 'الأرقام', () => { keysOpen = !keysOpen; drawControls(); }, keysOpen));
+    }
+    if (live || state === 'ai' || state === 'waiting') row.push(btn('end', '✕', state === 'waiting' ? 'إلغاء' : 'إنهاء', () => { send({ t: 'hangup' }); }));
+    ctl.replaceChildren(...row);
+    extra.replaceChildren();
+    if (live && keysOpen) {
+      extra.append(el('div', { class: 'keys' }, ...'123456789*0#'.split('').map(d =>
+        el('button', { type: 'button', onclick: () => send({ t: 'dtmf', d }) }, d))));
+    }
+    if (live) {
+      const t = el('input', { type: 'checkbox' }); t.checked = phoneMic;
+      t.addEventListener('change', () => { phoneMic = t.checked; send({ t: 'phoneMic', on: phoneMic }); });
+      extra.append(el('div', { class: 'row', style: 'margin-top:10px' },
+        el('div', {}, el('div', {}, 'مايك الموبايل نفسه'), el('div', { class: 'sub' }, 'اقفله لو الموبايل في مكان فيه دوشة')),
+        el('label', { class: 'switch' }, t, el('span'))));
+    }
+    hint.textContent = live ? 'السماعة أحسن عشان الطرف التاني ميسمعش صدى صوته' : '';
+  }
+
+  // ---- audio ----
+  async function start(what) {
+    try { audio = audio || await startAudio(); }
+    catch (e) { return micFailed(e); }
+    send({ t: what });
+  }
+
+  async function startAudio() {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+    });
+    const ctx = new AudioContext({ latencyHint: 'interactive' });
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' })));
+    await ctx.resume();
+    const cap = new AudioWorkletNode(ctx, 'aca-cap');
+    const play = new AudioWorkletNode(ctx, 'aca-play', { outputChannelCount: [2] });
+    const sink = ctx.createGain(); sink.gain.value = 0;
+    ctx.createMediaStreamSource(stream).connect(cap); cap.connect(sink); sink.connect(ctx.destination);
+    play.connect(ctx.destination);
+    cap.port.onmessage = e => {
+      meter.style.width = Math.min(100, e.data.peak * 160) + '%';
+      if (!muted && state === 'active' && phoneHere) sendFrame(MU.enc(e.data.pcm));
+    };
+    return {
+      play(p) {
+        const f = new Float32Array(p.length - 1);
+        for (let i = 1; i < p.length; i++) f[i - 1] = MU.table[p[i]];
+        play.port.postMessage(f, [f.buffer]);
+      },
+      stop() { stream.getTracks().forEach(t => t.stop()); ctx.close().catch(() => {}); },
+    };
+  }
+
+  function stopAudio() { try { audio?.stop(); } catch {} audio = null; meter.style.width = '0'; }
+
+  function micFailed(e) {
+    console.warn('mic', e);
+    const url = location.origin + location.pathname + '?c=' + sealed + '#k=' + keyB64;
+    extra.replaceChildren(el('div', { class: 'card', style: 'margin-top:12px' },
+      el('div', { class: 'stack' }, 'تليجرام مش مدّي الصفحة المايك (' + (e.name || e.message || e) + ').'),
+      el('div', { class: 'two' },
+        tg ? el('button', { class: 'btn', type: 'button', onclick: () => tg.openLink(url) }, 'افتحها في المتصفح') : null,
+        el('button', { class: 'btn alt', type: 'button', onclick: () => start(state === 'ai' ? 'takeover' : 'dial') }, 'جرّب تاني'))));
+  }
+
+  setInterval(() => {
+    if (state !== 'active' || !since) { tmEl.textContent = ''; return; }
+    const s = Math.floor((Date.now() - since) / 1000);
+    tmEl.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }, 500);
+
+  drawControls();
+  connect();
+}
 
 function render() {
   const orig = data.cfg;
@@ -278,6 +604,29 @@ function render() {
     return card;
   };
 
+  // ---- call from the phone's line ----
+  const dialCard = () => {
+    const to = el('input', { type: 'text', placeholder: 'رقم أو اسم من جهات الاتصال' });
+    const note = el('textarea', { rows: 3, placeholder: 'للـ AI بس: يقوله إيه / عايز منه إيه' });
+    const go = by => {
+      const v = to.value.trim();
+      if (!v) { to.focus(); return; }
+      const payload = JSON.stringify({ call: { to: v, note: by === 'ai' ? note.value.trim() : '', by } });
+      if (new TextEncoder().encode(payload).length > 4096) return tg.showAlert('التعليمات طويلة أوي.');
+      tg.disableClosingConfirmation?.();
+      tg.sendData(payload); // closes; the phone answers (with a call button for «أنا»)
+    };
+    return el('div', { class: 'card' },
+      el('div', { class: 'stack' }, to),
+      el('div', { class: 'stack' }, note),
+      el('div', { class: 'two' },
+        el('button', { class: 'btn', type: 'button', onclick: () => go('ai') }, '🤖 الـ AI يكلمه'),
+        el('button', { class: 'btn alt', type: 'button', onclick: () => go('me') }, '🎧 أكلمه أنا')),
+      (cfg.telegramControl || 'interval') !== 'always'
+        ? el('div', { class: 'sub', style: 'padding:0 14px 12px;color:var(--hint);font-size:13px' }, 'الموبايل هيشوف الطلب في الفحص الجاي. خلي «التطبيق يشوف التغييرات» على «على طول» عشان يتصل في ساعتها.')
+        : null);
+  };
+
   // ---- page ----
   function rebuild() {
     const mode = cfg.mode || 'assistant';
@@ -286,6 +635,7 @@ function render() {
       ...section('الرد الآلي',
         toggle('enabled', 'شغال', 'لو مقفول الموبايل هيرن عادي'),
         seg('mode', [['assistant', 'مساعد'], ['persona', 'زيّي'], ['voicemail', 'رسالة']], true)),
+      el('h2', {}, '📞 اتصل من خطك'), dialCard(),
       el('h2', {}, 'آخر المكالمات'), callsCard(),
       ...section('الكلام',
         text('ownerName', 'اسمك'),
@@ -295,7 +645,9 @@ function render() {
         mode !== 'voicemail' ? text('aboutOwner', 'معلومات عنك', { long: true, rows: 6, hint: 'حاجات يقدر يجاوب بيها المتسجلين عندك بس' }) : null,
         mode !== 'voicemail' ? text('rules', 'قواعد ممنوع يكسرها', { long: true, rows: 5 }) : null,
         text('offlineGreeting', 'رسالة الرد الصوتي', { long: true, rows: 3, hint: 'بتتقال في مود «رسالة» أو لما النت يقع' }),
-        select('voiceName', 'الصوت', VOICES)),
+        toggle('announceRecording', 'يقول إن المكالمة بتتسجل', 'لو مقفول، مش هيجيب سيرة التسجيل (المكالمة لسه بتتسجل)'),
+        select('voiceName', 'الصوت', VOICES),
+        toggle('ownVoiceRvc', 'يتكلم بصوتي', 'صوت الذكاء الاصطناعي بيتحول لصوتك على الموبايل. لو مقفول، بيتكلم بالصوت العادي')),
       ...section('المكالمات',
         number('autoAnswerDelaySec', 'يرد بعد', 'ثانية رنين', 0, 60),
         mode === 'voicemail'
@@ -310,14 +662,16 @@ function render() {
         cfg.dailyDigest !== false ? number('digestHour', 'يتبعت الساعة', '0 – 23', 0, 23) : null,
         el('div', { class: 'stack' }, el('label', { class: 'cap' }, 'التطبيق يشوف التغييرات اللي بتحفظها هنا'),
           seg('telegramControl', [['interval', 'كل شوية'], ['always', 'على طول']], true).firstChild),
-        ctl === 'interval' ? number('telegramPollMin', 'كل', 'دقيقة', 5, 120) : null),
+        ctl === 'interval' ? number('telegramPollMin', 'كل', 'دقيقة', 5, 120) : null,
+        cfg.relayUrl ? toggle('remoteAlerts', 'نبّهني لما الـ AI يبقى في مكالمة', 'زرار تتابع بيه الكلام وتستلم المكالمة') : null),
       el('details', {},
         el('summary', {}, el('h2', {}, 'متقدم')),
         el('div', { class: 'card' },
           text('liveModel', 'Live model', { ltr: true }),
           text('textModel', 'Text model', { ltr: true }),
           text('transcribeModel', 'Transcribe model', { ltr: true }),
-          text('ttsModel', 'TTS model', { ltr: true }))),
+          text('ttsModel', 'TTS model', { ltr: true }),
+          text('relayUrl', 'Relay URL', { ltr: true, hint: 'رابط الـ Worker عشان تتكلم من خطك عن طريق النت (فاضي = مقفول)' }))),
       el('div', { class: 'stamp' }, 'البيانات دي من ' + fmt.format(new Date(data.at))),
     );
   }
